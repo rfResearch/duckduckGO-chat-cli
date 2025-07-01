@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"golang.org/x/term"
 
 	"duckduckgo-chat-cli/internal/api"
 	"duckduckgo-chat-cli/internal/chat"
@@ -26,6 +27,8 @@ var Version = "dev"
 var chatSession *chat.Chat
 var cfg *config.Config
 
+var originalState *term.State // Declare originalState at the package level
+
 var commands = []prompt.Suggest{
 	{Text: "/help", Description: "Show the welcome message and command list"},
 	{Text: "/exit", Description: "Exit the chat"},
@@ -42,6 +45,25 @@ var commands = []prompt.Suggest{
 	{Text: "/model", Description: "Change the chat model"},
 	{Text: "/version", Description: "Show version information"},
 	{Text: "/api", Description: "Start or stop the API server interactively"},
+}
+
+//  Function to save and restore Terminal State
+func saveTerminalState() error {
+        fd := int(os.Stdin.Fd())
+        state, err := term.GetState(fd)
+        if err != nil {
+                return err
+        }
+        originalState = state
+        return nil
+}
+
+func restoreTerminalState() error {
+        fd := int(os.Stdin.Fd())
+        if originalState != nil {
+                return term.Restore(fd, originalState)
+        }
+        return nil
 }
 
 func completer(d prompt.Document) []prompt.Suggest {
@@ -65,6 +87,14 @@ func completer(d prompt.Document) []prompt.Suggest {
 }
 
 func main() {
+
+        // Save the terminal state
+        if err := saveTerminalState(); err != nil {
+                ui.Warningln("Error saving terminal state:")
+                return
+        }
+        defer restoreTerminalState() // Ensure the terminal state is restored on exit
+	
 	// create a channel to listen for interrupts
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -72,6 +102,7 @@ func main() {
 	go func() {
 		<-sigChan
 		ui.Warningln("\nReceived interrupt. Exiting gracefully.")
+                restoreTerminalState() // Restore terminal state before exiting		
 		os.Exit(0)
 	}()
 
@@ -114,6 +145,7 @@ func executor(input string) {
 	}
 	if input == "/exit" {
 		ui.Warningln("\nExiting chat. Goodbye!")
+                restoreTerminalState() // Restore terminal state before exiting		
 		os.Exit(0)
 	}
 
